@@ -14,18 +14,15 @@ class DiffusionModel(pl.LightningModule):
         self.in_size = in_size
 
         bilinear = True
-        self.inc = DoubleConv(img_depth, 64)
-        self.down1 = Down(64, 128)
-        self.down2 = Down(128, 256)
+        self.inc = DoubleConv(img_depth, 32)
+        self.down1 = Down(32, 64)
+        self.down2 = Down(64, 128)
         factor = 2 if bilinear else 1
-        self.down3 = Down(256, 512 // factor)
-        self.up1 = Up(512, 256 // factor, bilinear)
-        self.up2 = Up(256, 128 // factor, bilinear)
-        self.up3 = Up(128, 64, bilinear)
-        self.outc = OutConv(64, img_depth)
-        self.sa1 = SAWrapper(256, 8)
-        self.sa2 = SAWrapper(256, 4)
-        self.sa3 = SAWrapper(128, 8)
+        self.down3 = Down(128, 256 // factor)
+        self.up1 = Up(256, 128 // factor, bilinear)
+        self.up2 = Up(128, 64 // factor, bilinear)
+        self.up3 = Up(64, 32, bilinear)
+        self.outc = OutConv(32, img_depth)
 
     def pos_encoding(self, t, channels, embed_size):
         inv_freq = 1.0 / (
@@ -42,15 +39,12 @@ class DiffusionModel(pl.LightningModule):
         Model is U-Net with added positional encodings and self-attention layers.
         """
         x1 = self.inc(x)
-        x2 = self.down1(x1) + self.pos_encoding(t, 128, 16)
-        x3 = self.down2(x2) + self.pos_encoding(t, 256, 8)
-        x3 = self.sa1(x3)
-        x4 = self.down3(x3) + self.pos_encoding(t, 256, 4)
-        x4 = self.sa2(x4)
-        x = self.up1(x4, x3) + self.pos_encoding(t, 128, 8)
-        x = self.sa3(x)
-        x = self.up2(x, x2) + self.pos_encoding(t, 64, 16)
-        x = self.up3(x, x1) + self.pos_encoding(t, 64, 32)
+        x2 = self.down1(x1) + self.pos_encoding(t, 64, 16)
+        x3 = self.down2(x2) + self.pos_encoding(t, 128, 8)
+        x4 = self.down3(x3) + self.pos_encoding(t, 128, 4)
+        x = self.up1(x4, x3) + self.pos_encoding(t, 64, 8)
+        x = self.up2(x, x2) + self.pos_encoding(t, 32, 16)
+        x = self.up3(x, x1) + self.pos_encoding(t, 32, 32)
         output = self.outc(x)
         return output
 
