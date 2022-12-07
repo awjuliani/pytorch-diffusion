@@ -3,61 +3,36 @@ import torch.nn as nn
 import pytorch_lightning as pl
 import math
 from modules import *
+from network import DiffusionNetwork
 
 
-class DiffusionModel(pl.LightningModule):
+class DiffusionProcess(pl.LightningModule):
     def __init__(self, in_size, t_range, img_depth):
         super().__init__()
-        self.beta_small = 1e-4
-        self.beta_large = 0.02
         self.t_range = t_range
         self.in_size = in_size
-
-        bilinear = True
-        self.inc = DoubleConv(img_depth, 32)
-        self.down1 = Down(32, 64)
-        self.down2 = Down(64, 128)
-        factor = 2 if bilinear else 1
-        self.down3 = Down(128, 256 // factor)
-        self.up1 = Up(256, 128 // factor, bilinear)
-        self.up2 = Up(128, 64 // factor, bilinear)
-        self.up3 = Up(64, 32, bilinear)
-        self.outc = OutConv(32, img_depth)
-
-    def pos_encoding(self, t, channels, embed_size):
-        inv_freq = 1.0 / (
-            10000
-            ** (torch.arange(0, channels, 2, device=self.device).float() / channels)
-        )
-        pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
-        pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
-        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
-        return pos_enc.view(-1, channels, 1, 1).repeat(1, 1, embed_size, embed_size)
+        self.network = DiffusionNetwork(in_size, t_range, img_depth)
 
     def forward(self, x, t):
-        """
-        Model is U-Net with added positional encodings and self-attention layers.
-        """
-        x1 = self.inc(x)
-        x2 = self.down1(x1) + self.pos_encoding(t, 64, 16)
-        x3 = self.down2(x2) + self.pos_encoding(t, 128, 8)
-        x4 = self.down3(x3) + self.pos_encoding(t, 128, 4)
-        x = self.up1(x4, x3) + self.pos_encoding(t, 64, 8)
-        x = self.up2(x, x2) + self.pos_encoding(t, 32, 16)
-        x = self.up3(x, x1) + self.pos_encoding(t, 32, 32)
-        output = self.outc(x)
-        return output
+        xt = self.network(x, t)
+        return xt
+
+    def func(self, t):
+        s = 0.008
+        num = t / self.t_range + s
+        den = 1 + s
+        mul = math.pi / 2
+        return math.pow(math.cos(num / den * mul), 2)
 
     def beta(self, t):
-        return self.beta_small + (t / self.t_range) * (
-            self.beta_large - self.beta_small
-        )
+        base = torch.tensor(1 - self.alpha_bar(t) / self.alpha_bar(t - 1))
+        return torch.clip(base, 0.0, 0.999)
 
     def alpha(self, t):
         return 1 - self.beta(t)
 
     def alpha_bar(self, t):
-        return math.prod([self.alpha(j) for j in range(t)])
+        return self.func(t) / self.func(0)
 
     def get_loss(self, batch, batch_idx):
         """
@@ -84,7 +59,7 @@ class DiffusionModel(pl.LightningModule):
         """
         with torch.no_grad():
             if t > 1:
-                z = torch.randn(x.shape)
+                z = torch.randn(x.shape).to(x)
             else:
                 z = 0
             e_hat = self.forward(x, t.view(1, 1).repeat(x.shape[0], 1))
