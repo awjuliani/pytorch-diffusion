@@ -19,6 +19,8 @@ class DiffSet(Dataset):
         )
 
         self.dataset_len = len(train_dataset.data)
+        self.num_classes = len(train_dataset.classes)
+        self.targets = train_dataset.targets
 
         if dataset == "MNIST" or dataset == "Fashion":
             pad = transforms.Pad(2)
@@ -37,4 +39,4 @@ class DiffSet(Dataset):
         return self.dataset_len
 
     def __getitem__(self, item):
-        return self.input_seq[item]
+        return self.input_seq[item], self.targets[item]
